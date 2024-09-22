@@ -29,14 +29,16 @@ int32_t GetCurrent_mA() {
   return (int32_t)(current_count + 33) * 31 / 10;  // Calibration constants
 }
 
-int32_t sumCurrent_mA = 0;
+struct SerialData {
+  int32_t sumCurrent_mA = 0;
+  uint8_t crc;
+} sdata;
 uint16_t sampleCount = 0;
 
-constexpr const unsigned long stateUpdatePeriod = 1000ul;
-unsigned long nextStateUpdate = 0;
+constexpr unsigned long stateUpdatePeriod = 1000ul;
+
 void updateState() {
-  nextStateUpdate += stateUpdatePeriod;
-  sumCurrent_mA += GetCurrent_mA();
+  sdata.sumCurrent_mA += GetCurrent_mA();
   sampleCount++;
 }
 
@@ -46,9 +48,10 @@ void runCommand(CommandID command) {
     SendRS485(&MAGIC_NUMBER, sizeof(MAGIC_NUMBER));
     break;
   case READ_CURRENT_MA:
-    sumCurrent_mA /= sampleCount;
-    SendRS485((uint8_t*)(&sumCurrent_mA), sizeof(sumCurrent_mA));
-    sumCurrent_mA = 0;
+    sdata.sumCurrent_mA /= sampleCount;
+    sdata.crc = crc((uint8_t*)&sdata, sizeof(SerialData) - 1);
+    SendRS485((uint8_t*)&sdata, sizeof(SerialData));
+    sdata.sumCurrent_mA = 0;
     sampleCount = 0;
     break;
   }
@@ -77,9 +80,27 @@ uint8_t updateSerialState(uint8_t byte) {
 
 
 void loop() {
-  if(millis() > nextStateUpdate) updateState();
+  static unsigned long nextStateUpdate = 0;
+  if(millis() > nextStateUpdate) {
+    nextStateUpdate += stateUpdatePeriod;
+    updateState();
+  }
 
   while(Serial.available()) {
     serial_state = (SerialSeq)updateSerialState(Serial.read());
   }
+}
+
+uint8_t crc(uint8_t *data, uint8_t len) {
+  uint8_t crc = 0x00;
+  for (uint8_t b = 0; b < len; ++b) {
+    crc ^= data[b];
+    for (uint8_t i = 0; i < 8; ++i) {
+      if (crc & 0x80)
+        crc = (crc << 1) ^ 0x07;	// SMBUS CRC8
+      else
+        crc = crc << 1;
+    }
+  }
+  return crc;
 }
