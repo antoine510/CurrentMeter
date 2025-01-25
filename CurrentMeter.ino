@@ -23,19 +23,18 @@ void setup() {
   Serial.begin(9600);
 }
 
-int32_t GetCurrent_mA() {
+int16_t GetCurrent_count() {
   uint8_t buf[2];
   Wire.requestFrom(I2C_ADDR, (uint8_t)2);
   Wire.readBytes((char*)buf, 2);
-  int16_t current_count = buf[0] << 8 | buf[1];
-  return (int32_t)(current_count + 33) * 31 / 10;  // Calibration constants
+  return buf[0] << 8 | buf[1];
 }
 
-int32_t sumCurrent_mA = 0;
+int32_t sumCurrent_count = 0;
 uint16_t sampleCount = 0;
 
 void updateState() {
-  sumCurrent_mA += GetCurrent_mA();
+  sumCurrent_count += GetCurrent_count();
   sampleCount++;
 }
 
@@ -46,15 +45,15 @@ void runCommand(CommandID command) {
     SendRS485(&MAGIC_NUMBER, sizeof(MAGIC_NUMBER), false);
     break;
   case READ_CURRENT_MA:
-    sumCurrent_mA /= sampleCount;
-    SendRS485((uint8_t*)&sumCurrent_mA, sizeof(sumCurrent_mA), true);
-    sumCurrent_mA = 0;
+    sumCurrent_count /= sampleCount;
+    SendRS485((uint8_t*)&sumCurrent_count, sizeof(sumCurrent_count), true);
+    sumCurrent_count = 0;
     sampleCount = 0;
     break;
   }
 }
 
-void SendRS485(uint8_t* data, size_t len, bool withCRC) {
+void SendRS485(const uint8_t* data, size_t len, bool withCRC) {
   const uint8_t msg_crc = crc(data, len);
   PORTD |= _BV(PORTD2);
   Serial.write(data, len);
